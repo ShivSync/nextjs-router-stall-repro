@@ -1,38 +1,30 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useTenant } from "./TenantProvider";
 
-// Mimics the pattern that triggers the bug in the original report:
-// "use client" page that does async work on mount. The specific work doesn't
-// matter — what matters is that the destination route is a client component
-// that hydrates with non-trivial dependencies. The bug fires on 2nd-visit
-// regardless of what useEffect actually does.
+// Destination page that consumes the tenant context AND triggers an on-mount
+// fetch dependent on the tenant. This mirrors the pattern in outreach where
+// every page calls useTenant() then does Supabase reads scoped to the tenant.
 export function HeavyClientPage({ label }: { label: string }) {
-  const [ticks, setTicks] = useState(0);
-  const [randomFetch, setRandomFetch] = useState<{ status: number; ms: number } | null>(null);
+  const { activeTenant, loading } = useTenant();
+  const [stats, setStats] = useState<{ status: number; ms: number } | null>(null);
 
   useEffect(() => {
-    // Simulate a real on-mount fetch (PostgREST/REST API style).
+    if (!activeTenant) return;
     const t0 = performance.now();
-    fetch("/api/echo")
-      .then((res) => setRandomFetch({ status: res.status, ms: Math.round(performance.now() - t0) }))
+    fetch(`/api/echo?tenant_id=${activeTenant.id}`)
+      .then((res) => setStats({ status: res.status, ms: Math.round(performance.now() - t0) }))
       .catch(() => null);
-  }, []);
-
-  useEffect(() => {
-    const id = setInterval(() => setTicks((t) => t + 1), 1000);
-    return () => clearInterval(id);
-  }, []);
+  }, [activeTenant]);
 
   return (
     <div>
       <h1>{label}</h1>
-      <p>This is a "use client" page that runs useEffect on mount.</p>
-      <p>Mount fetch: {randomFetch ? `${randomFetch.status} in ${randomFetch.ms}ms` : "in flight..."}</p>
-      <p>Ticks since mount: {ticks}</p>
+      <p>Tenant: {loading ? "loading..." : activeTenant?.name}</p>
+      <p>On-mount fetch: {stats ? `${stats.status} in ${stats.ms}ms` : "in flight..."}</p>
       <p style={{ color: "#6b7280", fontSize: 13 }}>
-        Now click a different sidebar link, then come back here. The 2nd visit will hang ~20s
-        behind a proxy.
+        Click a different sidebar Link, then come back. The 2nd visit may hang.
       </p>
     </div>
   );
